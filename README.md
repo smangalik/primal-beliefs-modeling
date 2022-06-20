@@ -1,26 +1,26 @@
 # primal-beliefs-modeling
-Documents for the codes and data reproducing the LaBel model described in the main paper ["Modeling Latent Dimensions of Human Beliefs"](https://ojs.aaai.org/index.php/ICWSM/article/view/19358). 
+Documents for the codes and data reproducing results in paper ["Modeling Latent Dimensions of Human Beliefs"](https://ojs.aaai.org/index.php/ICWSM/article/view/19358). 
 
 ## A. Codes and data structures
 
 **(1) Source codes:**
  + `preprocess.py`: 
-   steps for preprocessing tweets data. For example, reducing duplicates for long and highly repeatitive texts, processing symbols such as "<newline>", "&amp", "&lt", etc, adding tweets ids, calculating data statistics, etc.
+   steps for preprocessing tweets data. For example, reducing duplicates for long and highly repeatitive texts, processing symbols such as "\<newline>", "&amp", "&lt", etc, adding tweets ids, calculating data statistics, etc.
  + `extract_BERT_embeddings.py`: 
-   codes for extract BERT embeddings of tweets using the pre-trained provided BERT model. Each tweet in the data will be mapped to a BERT embeddings vector of size 1024.
+   codes for extracting BERT embeddings of tweets using the pre-trained provided BERT model. Each tweet in the data will be mapped to a BERT embeddings vector of size 1024.
  + `nmf_algorithm.py`: 
    codes running NMF factorization, factorizing tweets embeddings into compressed latent embeddings of size 50.
- + experimentally, we proposed 3 models architecture, contained in these files:
+ + experimentally, we proposed 3 models architecture, implemented in these files:
 	- `gpt2_wrapper_arch1.py`: 
           architecture 1 described in paper
 	- `gpt2_wrapper_arch2.py`: 
           architecture 2 described in paper
 	- `gpt2_wrapper.py`: 
-          architecture 3 described in paper (main architecture)
+          architecture 3 described in paper (also the main architecture)
  + `train_gpt2.py`: 
-   codes for training modified GPT-2 decoder model
+   codes for training the modified GPT-2 decoder model
  + `inference_gpt2.py`: 
-   codes for generating texts/beliefs from latent dimensions
+   codes for generating texts of beliefs from latent dimensions
  
 
 **(2) Data:**
@@ -34,12 +34,12 @@ Documents for the codes and data reproducing the LaBel model described in the ma
 
 ## B. Steps to reproduce proposed model
   
-Below are the steps to build the model described in main paper.
+Below are the steps to build the model described in the paper.
 
 
 **(1) Preprocessing texts:**
  + Details:
-Preprocess step in which we lowercase all tweets (to have them work most efficiently with large-uncased-BERT model); filter out repeated quotes (to avoid un-original tweets) and cleaning data (replacing invalid symbols with correct ones, e.g. "&amp" or "&lt"). The following command specify the arguments to run the code. The file "the_world_is_tweets.csv" is provided in the Data section.  
+Preprocessing step in which we lowercase all tweets (to have them work most efficiently with large-uncased-BERT model), filtering out repeated quotes (to avoid unoriginal tweets) and cleaning data (replacing invalid symbols with correct ones, e.g. "&amp" or "&lt"). The following command specify the arguments to run the code. The file "the_world_is_tweets.csv" is provided in the Data directory.  
  + Command:
 ```
 python3 preprocess.py \
