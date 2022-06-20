@@ -1,5 +1,5 @@
 # primal-beliefs-modeling
-Documents for the codes and data reproducing the LaBel model described in the main paper "Modeling Latent Dimensions of Human Beliefs"
+Documents for the codes and data reproducing the LaBel model described in the main paper ["Modeling Latent Dimensions of Human Beliefs"](https://ojs.aaai.org/index.php/ICWSM/article/view/19358). 
 
 ## A. Codes and data structures
 
