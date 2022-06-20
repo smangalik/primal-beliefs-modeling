@@ -6,7 +6,7 @@ Documents for the codes and data reproducing the LaBel model described in the ma
 **(1) Source codes:**
  + `preprocess.py`: 
    steps for preprocessing tweets data. For example, reducing duplicates for long and highly repeatitive texts, processing symbols such as "<newline>", "&amp", "&lt", etc, adding tweets ids, calculating data statistics, etc.
- + extract_BERT_embeddings.py: 
+ + `extract_BERT_embeddings.py`: 
    codes for extract BERT embeddings of tweets using the pre-trained provided BERT model. Each tweet in the data will be mapped to a BERT embeddings vector of size 1024.
  + `nmf_algorithm.py`: 
    codes running NMF factorization, factorizing tweets embeddings into compressed latent embeddings of size 50.
