@@ -24,7 +24,7 @@ Documents for the codes and data reproducing results in paper ["Modeling Latent 
  
 
 **(2) Data:**
- - `the_world_is_tweets.csv`: collected tweets data describing people's views about the world, which starting with "the world is...".
+ - `the_world_is_tweets.csv`: collected tweets data describing people's views about the world, which starting with "the world is...". The file has two columns 'id' and 'sentence' referring to the index and the tweet. Due to data privacy policy, this file is not made public.
  - `tweets_labels.csv`: file containing annotated tweets with primals classes by experts, used for prediction evaluation experiment.
 
 **(3) Other relevant files:**
