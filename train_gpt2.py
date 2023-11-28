@@ -19,8 +19,8 @@ except:
     from tensorboardX import SummaryWriter
 from tqdm import tqdm, trange
 from transformers import (AdamW, get_linear_schedule_with_warmup,
-                                  GPT2Config, GPT2LMHeadModel, GPT2Tokenizer)
-
+                                  GPT2Config, GPT2Tokenizer, GPT2LMHeadModel)
+#from modeling_gpt2 import GPT2LMHeadModel
 
 ## architecture 1: embeddings fed in using transformation matrix for the second to last layer only 
 # from gpt2_wrapper_arch1 import GPT2_WRAPPER 
@@ -30,7 +30,6 @@ from transformers import (AdamW, get_linear_schedule_with_warmup,
 # print("from gpt2_wrapper_arch2 import GPT2_WRAPPER")
 ## architecture 3: embeddings fed in using transformation matrix for the second to last layer only 
 from gpt2_wrapper import GPT2_WRAPPER
-print("from gpt2_wrapper import GPT2_WRAPPER")
 
 
 logger = logging.getLogger(__name__)
@@ -54,7 +53,7 @@ class TextDataset(Dataset):
             with open(cached_features_file, 'rb') as handle:
                 self.examples = pickle.load(handle)
         else:
-            logger.info("Creating features from dataset file at %s", directory)       
+            logger.info("Creating features from dataset file at %s", file_path)       
 
 
             # defining method for creating mask
@@ -63,31 +62,33 @@ class TextDataset(Dataset):
                 #   sentence_length is length of real text, from <|sos|> to <|endoftext|>
                 #   seq_length is length with <|pad|> (32, 64, 128, ...)
                 
-                if mask_type == "encoder_mask":
-                    print("Please set mask_type as: decoder_mask")
-                    return 
                 if mask_type == "decoder_mask":
-                    # attention, the triangular matrix is [seq_length,seq_length+1] becasuse the original has one more "past" token
+                    # attention, the triangular matrix is [seq_length,seq_length+1] because the original has the past token
                     mask_one_head = np.tril(np.ones([seq_length,seq_length+1]),1)
                     mask_all_heads = [mask_one_head] * gpt2_config.n_head   
-                    mask_all_heads = np.array(mask_all_heads)
-                return mask_all_heads            
-            
+                    mask_all_heads = np.array(mask_all_heads) # [n_head, seq_length, seq_length+1]
+                    return mask_all_heads
+                    
+                else: # e.g. "encoder_mask"
+                    print("Please set mask_type as: 'decoder_mask'")
+                    return
+        
+            # truncates or pads tokens to block_size        
             def truncating_padding_sentence(tokens, block_size):
-                if (len(tokens) > block_size):
-                    original_tokens_len = block_size
+                original_tokens_len = len(tokens)
+                if original_tokens_len > block_size: # truncate
                     tokens = tokens[:block_size]
-                else:
-                    original_tokens_len = len(tokens)
-                    tokens = tokens + ["<|pad|>"]*(block_size - len(tokens))
-                return tokens, original_tokens_len    
+                    return tokens, block_size
+                else: # pad or do nothing
+                    tokens = tokens + ["<|pad|>"]*(block_size - original_tokens_len)
+                    return tokens, original_tokens_len
                 
             
             # reading file
             self.examples = []
 
             data_df = pd.read_csv(file_path, header = 0, index_col = False)
-            for i, record in data_df.iterrows(): 
+            for _, record in data_df.iterrows(): 
 
                 # read data
                 sentence_id = record["message_id"]
@@ -98,7 +99,7 @@ class TextDataset(Dataset):
                 sentence_tokenized = tokenizer.tokenize(sentence_text)
 
                 # decoder_input
-                decoder_input = ["<|sos|>"] + sentence_tokenized
+                decoder_input = ["<|sos|>"] + sentence_tokenized 
                 decoder_input, decoder_input_len = truncating_padding_sentence(decoder_input, args.block_size)
                 decoder_input = tokenizer.convert_tokens_to_ids(decoder_input)
                 decoder_input = np.array(decoder_input)
@@ -109,21 +110,30 @@ class TextDataset(Dataset):
                 decoder_label = np.array(decoder_label)
 
                 # decoder_attention_mask
-                decoder_attention_mask = create_attention_mask(decoder_input_len, args.block_size, args.gpt2_config, "decoder_mask")
+                decoder_attention_mask = create_attention_mask(
+                    sentence_length=decoder_input_len, 
+                    seq_length=args.block_size, 
+                    gpt2_config=args.gpt2_config, 
+                    mask_type="decoder_mask"
+                )
 
-
+                # create training sample
+                training_sentence = dict({"sentence_embedding": sentence_embedding, 
+                                          "sentence_text": sentence_text, 
+                                          "decoder_input": decoder_input, 
+                                          "decoder_attention_mask": decoder_attention_mask, 
+                                          "decoder_label": decoder_label})  
+                
                 # append to examples list
-                training_sentence = dict({"sentence_embedding": sentence_embedding, "sentence_text": sentence_text, "decoder_input": decoder_input, "decoder_attention_mask": decoder_attention_mask, "decoder_label": decoder_label})  
                 self.examples.append(training_sentence)
 
-
             # print examples of training set
-            for i in range(5):
-                example = self.examples[i]
-                logger.info("decoder_input: " + str(example["decoder_input"]))
-                logger.info("decoder_label: " + str(example["decoder_label"]))           
-                logger.info("decoder_input: " + str(tokenizer.decode(example["decoder_input"].tolist(), clean_up_tokenization_spaces=True))) 
-                logger.info("decoder_label: " + str(tokenizer.decode(example["decoder_label"].tolist(), clean_up_tokenization_spaces=True)))
+            for example in self.examples[:5]:
+                logger.info("decoder_input_dec: " + str(tokenizer.decode(example["decoder_input"].tolist(), clean_up_tokenization_spaces=True)))
+                logger.info("decoder_input_enc: " + str(example["decoder_input"]))
+                logger.info("decoder_label_dec: " + str(tokenizer.decode(example["decoder_label"].tolist(), clean_up_tokenization_spaces=True)))
+                logger.info("decoder_label_enc: " + str(example["decoder_label"]))           
+                logger.info("-" * 50)
 
             logger.info("Saving features into cached file %s", cached_features_file)
             with open(cached_features_file, 'wb') as handle:
@@ -209,9 +219,17 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
     tb_writer = SummaryWriter()
     
     print("DEBUGGING!")
-    print("train_dataset: " + str(len(train_dataset)))
-    print(train_dataset[0])
-    print("train_batch_size: " + str(args.per_gpu_train_batch_size * max(1, args.n_gpu)))
+    print("train_dataset length:", len(train_dataset), "samples")
+    print("First sample:")
+    sample = train_dataset[0]
+    for key in sample.keys():
+        if key != "sentence_text":
+            print( "{} w/ shape {} = {}".format(key, sample[key].shape, sample[key]) )
+        else:
+            print( "{} = {}".format(key, sample[key]))
+   
+
+    print("Training Batch Size (scales with GPUs): ", args.per_gpu_train_batch_size * max(1, args.n_gpu))
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset)
@@ -273,9 +291,19 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
             decoder_label = decoder_label.to(args.device)
             decoder_attention_mask = decoder_attention_mask.to(args.device)
 
+            # debug
+            print("> sentence_embedding:", sentence_embedding.shape)
+            print("> decoder_input:", decoder_input.shape)
+            print("> decoder_label:", decoder_label.shape)
+            print("> decoder_attention_mask:", decoder_attention_mask.shape)
 
             # forward pass (change and edit with VAE code)
-            decoder_lm_logits = model(sentence_embedding, decoder_input, decoder_attention_mask, args.device)
+            decoder_lm_logits = model(
+                embeddings=sentence_embedding, 
+                decoder_input_ids=decoder_input, 
+                decoder_attention_mask=decoder_attention_mask, 
+                device=args.device
+            )
 
 
             # compute loss  

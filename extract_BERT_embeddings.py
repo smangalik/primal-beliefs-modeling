@@ -10,7 +10,7 @@ Original file is located at
 """
 
 # Summary: using to extract BERT in general, input id_column, text_column, header 
-# Input: question raw dataset
+# Input: raw dataset
 # Output: .json file with each record is "id", "BERT_all_words"   
 
 from __future__ import absolute_import
@@ -24,7 +24,6 @@ import logging
 import json
 import csv 
 import numpy as np
-csv.field_size_limit(5000000)
 import time, datetime
 from tqdm import tqdm
 
@@ -33,6 +32,9 @@ from torch.utils.data import TensorDataset, DataLoader, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
 from transformers import BertConfig, BertModel, BertTokenizer
+
+csv.field_size_limit(5000000)
+
 MODEL_CLASSES = {'bert': (BertConfig, BertModel, BertTokenizer)}
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s', 
@@ -130,7 +132,7 @@ def read_examples(input_file, id_column, text_column, header):
 """================== MAIN =================="""
 
 def main():
-    start = time.time()
+    start_time = time.time()
     
     parser = argparse.ArgumentParser()
 
@@ -173,7 +175,7 @@ def main():
                         type=bool,
                         help="Remove header if True")
     parser.add_argument("--layers_aggregation", 
-                        default=None, type=str, 
+                        default='mean', type=str, 
                         required=True)
     
     args = parser.parse_args()
@@ -203,7 +205,6 @@ def main():
     # reading input text
     samples = read_examples(args.input_file, args.id_column, args.text_column, args.header)
     features = convert_examples_to_features(samples = samples, seq_length = args.block_size, tokenizer=tokenizer)
-    
 
     if args.local_rank != -1:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
@@ -276,9 +277,10 @@ def main():
                 output_json["text"] = feature.text
                 output_json["vector"] = embedding_sample_across_layers.tolist() 
                 writer.write(json.dumps(output_json) + "\n")
-                
-                
-    print ("Took %s to extract BERT embeddings." % (datetime.timedelta(seconds=(time.time()-start))))  
+
+    # Print time in hours:minutes:seconds
+    time_elapsed = time.time() - start_time
+    print("Time elapsed: " + str(datetime.timedelta(seconds=time_elapsed)))
            
 if __name__ == "__main__":
     main()

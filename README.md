@@ -73,7 +73,7 @@ The code below preprocesses data and run NMF algorithm to factorize embeddings d
  + Command:
 ```  
 python3 nmf_algorithm.py \
-	--embeddings_file tweets_bert_embeddings.csv \
+	--embeddings_file tweets_bert_embeddings.json \
 	--output_file tweets_nmf50.csv \
 	--algorithm nmf \
 	--n 50
@@ -91,7 +91,7 @@ python3 train_gpt2.py \
 	--gpt2_model_name_or_path gpt2 \
 	--latent_size 50 \
 	--block_size 32 \
-	--per_gpu_train_batch_size 16 \
+	--per_gpu_train_batch_size 2 \
 	--gradient_accumulation_steps 1 \
 	--do_train \
 	--save_steps 500 \

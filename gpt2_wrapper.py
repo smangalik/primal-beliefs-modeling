@@ -1,7 +1,8 @@
 # import libraries
 import torch
 import torch.nn as nn
-from transformers import GPT2Model, GPT2LMHeadModel, GPT2Tokenizer
+from transformers import GPT2Model, GPT2Tokenizer, GPT2LMHeadModel
+#from modeling_gpt2 import GPT2LMHeadModel
 import logging
 import torch.nn.functional as F
 import os
@@ -50,22 +51,31 @@ class GPT2_WRAPPER(nn.Module):
         # batch_size
         batch_size = embeddings.shape[0]
 
-
         # transform to GPT2 transformer size
+        print("embeddings: " + str(embeddings.shape))
         transformed_embeddings = self.transform_matrix(embeddings) # CHECK! size [batch_size, n_layer * n_emb * 2]
-        # print("transformed_embeddings: " + str(transformed_embeddings.shape)) 
+        print("transformed_embeddings transform: " + str(transformed_embeddings.shape)) 
         transformed_embeddings = transformed_embeddings.reshape([batch_size, self.gpt2_config.n_layer, 2, self.gpt2_config.n_head, 1, int(self.gpt2_config.n_embd/self.gpt2_config.n_head)])
-        # print("transformed_embeddings: " + str(transformed_embeddings.shape)) 
+        print("transformed_embeddings reshape: " + str(transformed_embeddings.shape)) 
         transformed_embeddings = torch.transpose(transformed_embeddings,0,1).contiguous()
-        # print("transformed_embeddings: " + str(transformed_embeddings.shape)) 
-
+        print("transformed_embeddings transpose: " + str(transformed_embeddings.shape)) 
 
         # decoder
         past = transformed_embeddings
 
+        # debug
+        # print('-' * 50)
+        # print("embeddings: " + str(embeddings.shape))
+        # print("decoder_input_ids: " + str(decoder_input_ids.shape))
+        # print("decoder_attention_mask: " + str(decoder_attention_mask.shape))
+        # print("past: " + str(past.shape))
 
         # decoder forward pass
-        decoder_lm_logits, decoder_presents, decoder_hidden_states, decoder_attentions = self.decoder(input_ids = decoder_input_ids, past = past, attention_mask = decoder_attention_mask)
+        decoder_lm_logits, decoder_presents, decoder_hidden_states, decoder_attentions = self.decoder(
+            input_ids = decoder_input_ids, 
+            past = past, 
+            attention_mask = decoder_attention_mask
+        )
 
         return decoder_lm_logits
 
@@ -196,7 +206,7 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')
         sorted_indices_to_remove[..., 0] = 0
 
         # scatter sorted tensors to original indexing
-        indices_to_remove = sorted_indices_to_remove.scatter(dim=1, index=sorted_indices, source=sorted_indices_to_remove)
+        indices_to_remove = sorted_indices_to_remove.scatter(dim=1, index=sorted_indices, src=sorted_indices_to_remove)
         logits[indices_to_remove] = filter_value
     return logits
 
