@@ -1,3 +1,5 @@
 *.csv
 *.json
+runs/
+trained_models/
 modeling_gpt2.py

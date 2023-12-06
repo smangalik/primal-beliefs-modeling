@@ -1,8 +1,7 @@
 # import libraries
 import torch
 import torch.nn as nn
-from transformers import GPT2Model, GPT2Tokenizer, GPT2LMHeadModel
-#from modeling_gpt2 import GPT2LMHeadModel
+from transformers import GPT2Model, GPT2LMHeadModel, GPT2Tokenizer
 import logging
 import torch.nn.functional as F
 import os
@@ -51,31 +50,29 @@ class GPT2_WRAPPER(nn.Module):
         # batch_size
         batch_size = embeddings.shape[0]
 
+
         # transform to GPT2 transformer size
-        print("embeddings: " + str(embeddings.shape))
         transformed_embeddings = self.transform_matrix(embeddings) # CHECK! size [batch_size, n_layer * n_emb * 2]
-        print("transformed_embeddings transform: " + str(transformed_embeddings.shape)) 
+        # print("transformed_embeddings: " + str(transformed_embeddings.shape)) 
         transformed_embeddings = transformed_embeddings.reshape([batch_size, self.gpt2_config.n_layer, 2, self.gpt2_config.n_head, 1, int(self.gpt2_config.n_embd/self.gpt2_config.n_head)])
-        print("transformed_embeddings reshape: " + str(transformed_embeddings.shape)) 
+        # print("transformed_embeddings: " + str(transformed_embeddings.shape)) 
         transformed_embeddings = torch.transpose(transformed_embeddings,0,1).contiguous()
-        print("transformed_embeddings transpose: " + str(transformed_embeddings.shape)) 
+        transformed_embeddings = torch.transpose(transformed_embeddings,1,2).contiguous()
+        # print("transformed_embeddings: " + str(transformed_embeddings.shape)) 
+
+        # # switch to match modeling_gpt2.py
+        # decoder_attention_mask = torch.transpose(decoder_attention_mask, -1, -2).contiguous()
 
         # decoder
         past = transformed_embeddings
 
-        # debug
-        # print('-' * 50)
-        # print("embeddings: " + str(embeddings.shape))
+        # # DEBUGGING!
+        # print("past: " + str(past.shape))
         # print("decoder_input_ids: " + str(decoder_input_ids.shape))
         # print("decoder_attention_mask: " + str(decoder_attention_mask.shape))
-        # print("past: " + str(past.shape))
 
         # decoder forward pass
-        decoder_lm_logits, decoder_presents, decoder_hidden_states, decoder_attentions = self.decoder(
-            input_ids = decoder_input_ids, 
-            past = past, 
-            attention_mask = decoder_attention_mask
-        )
+        decoder_lm_logits, decoder_presents, decoder_hidden_states, decoder_attentions = self.decoder(input_ids = decoder_input_ids, past = past, attention_mask = decoder_attention_mask)
 
         return decoder_lm_logits
 
@@ -94,6 +91,7 @@ class GPT2_WRAPPER(nn.Module):
         transformed_embeddings = transformed_embeddings.reshape([batch_size, self.gpt2_config.n_layer, 2, self.gpt2_config.n_head, 1, int(self.gpt2_config.n_embd/self.gpt2_config.n_head)])
         # print("transformed_embeddings: " + str(transformed_embeddings.shape)) 
         transformed_embeddings = torch.transpose(transformed_embeddings,0,1).contiguous()
+        transformed_embeddings = torch.transpose(transformed_embeddings,1,2).contiguous()
         # print("transformed_embeddings: " + str(transformed_embeddings.shape)) 
         
 
@@ -111,9 +109,16 @@ class GPT2_WRAPPER(nn.Module):
             
             # decoder forward pass
             decoder_lm_logits, decoder_presents, decoder_hidden_states, decoder_attentions = self.decoder(input_ids = generated, past = past, attention_mask = None)
-            
+
+
             # sample from vocabulary
             decoder_lm_logits = decoder_lm_logits[:,-1,:]
+
+            # print("decoder_lm_logits: ")
+            # print(decoder_lm_logits.shape)
+            # print(decoder_lm_logits.shape[-1)
+            # print(decoder_lm_logits[:3])
+
             filtered_decoder_lm_logits = top_k_top_p_filtering(decoder_lm_logits, top_k=args.top_k, top_p=args.top_p)
             if args.temperature == 0: # greedy sampling:
                 next_token = torch.argmax(filtered_decoder_lm_logits, dim=-1).unsqueeze(-1)

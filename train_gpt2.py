@@ -19,18 +19,17 @@ except:
     from tensorboardX import SummaryWriter
 from tqdm import tqdm, trange
 from transformers import (AdamW, get_linear_schedule_with_warmup,
-                                  GPT2Config, GPT2Tokenizer, GPT2LMHeadModel)
-#from modeling_gpt2 import GPT2LMHeadModel
+                                  GPT2Config, GPT2LMHeadModel, GPT2Tokenizer)
 
-## architecture 1: embeddings fed in using transformation matrix for the second to last layer only 
-# from gpt2_wrapper_arch1 import GPT2_WRAPPER 
-# print("from gpt2_wrapper_arch1 import GPT2_WRAPPER")
-## architecture 2: one same transformation matrix for all 12 layers
-# from gpt2_wrapper_arch2 import GPT2_WRAPPER
-# print("from gpt2_wrapper_arch2 import GPT2_WRAPPER")
-## architecture 3: embeddings fed in using transformation matrix for the second to last layer only 
+
 from gpt2_wrapper import GPT2_WRAPPER
-
+print("from gpt2_wrapper import GPT2_WRAPPER")
+## experiment: one same transformation matrix for all 12 layers
+# from gpt2_wrapper_exp1 import GPT2_WRAPPER
+# print("from gpt2_wrapper_exp1 import GPT2_WRAPPER")
+## experiment: embeddings fed in using transformation matrix for the second to last layer only 
+# from gpt2_wrapper_exp2 import GPT2_WRAPPER 
+# print("from gpt2_wrapper_exp2 import GPT2_WRAPPER")
 
 logger = logging.getLogger(__name__)
 MODEL_CLASSES = {
@@ -53,7 +52,7 @@ class TextDataset(Dataset):
             with open(cached_features_file, 'rb') as handle:
                 self.examples = pickle.load(handle)
         else:
-            logger.info("Creating features from dataset file at %s", file_path)       
+            logger.info("Creating features from dataset file at %s", directory)       
 
 
             # defining method for creating mask
@@ -62,33 +61,31 @@ class TextDataset(Dataset):
                 #   sentence_length is length of real text, from <|sos|> to <|endoftext|>
                 #   seq_length is length with <|pad|> (32, 64, 128, ...)
                 
+                if mask_type == "encoder_mask":
+                    print("Please set mask_type as: decoder_mask")
+                    return 
                 if mask_type == "decoder_mask":
-                    # attention, the triangular matrix is [seq_length,seq_length+1] because the original has the past token
+                    # attention, the triangular matrix is [seq_length,seq_length+1] becasuse the original has one more "past" token
                     mask_one_head = np.tril(np.ones([seq_length,seq_length+1]),1)
                     mask_all_heads = [mask_one_head] * gpt2_config.n_head   
-                    mask_all_heads = np.array(mask_all_heads) # [n_head, seq_length, seq_length+1]
-                    return mask_all_heads
-                    
-                else: # e.g. "encoder_mask"
-                    print("Please set mask_type as: 'decoder_mask'")
-                    return
-        
-            # truncates or pads tokens to block_size        
+                    mask_all_heads = np.array(mask_all_heads)
+                return mask_all_heads            
+            
             def truncating_padding_sentence(tokens, block_size):
-                original_tokens_len = len(tokens)
-                if original_tokens_len > block_size: # truncate
+                if (len(tokens) > block_size):
+                    original_tokens_len = block_size
                     tokens = tokens[:block_size]
-                    return tokens, block_size
-                else: # pad or do nothing
-                    tokens = tokens + ["<|pad|>"]*(block_size - original_tokens_len)
-                    return tokens, original_tokens_len
+                else:
+                    original_tokens_len = len(tokens)
+                    tokens = tokens + ["<|pad|>"]*(block_size - len(tokens))
+                return tokens, original_tokens_len    
                 
             
             # reading file
             self.examples = []
 
             data_df = pd.read_csv(file_path, header = 0, index_col = False)
-            for _, record in data_df.iterrows(): 
+            for i, record in data_df.iterrows(): 
 
                 # read data
                 sentence_id = record["message_id"]
@@ -99,7 +96,7 @@ class TextDataset(Dataset):
                 sentence_tokenized = tokenizer.tokenize(sentence_text)
 
                 # decoder_input
-                decoder_input = ["<|sos|>"] + sentence_tokenized 
+                decoder_input = ["<|sos|>"] + sentence_tokenized
                 decoder_input, decoder_input_len = truncating_padding_sentence(decoder_input, args.block_size)
                 decoder_input = tokenizer.convert_tokens_to_ids(decoder_input)
                 decoder_input = np.array(decoder_input)
@@ -110,30 +107,21 @@ class TextDataset(Dataset):
                 decoder_label = np.array(decoder_label)
 
                 # decoder_attention_mask
-                decoder_attention_mask = create_attention_mask(
-                    sentence_length=decoder_input_len, 
-                    seq_length=args.block_size, 
-                    gpt2_config=args.gpt2_config, 
-                    mask_type="decoder_mask"
-                )
+                decoder_attention_mask = create_attention_mask(decoder_input_len, args.block_size, args.gpt2_config, "decoder_mask")
 
-                # create training sample
-                training_sentence = dict({"sentence_embedding": sentence_embedding, 
-                                          "sentence_text": sentence_text, 
-                                          "decoder_input": decoder_input, 
-                                          "decoder_attention_mask": decoder_attention_mask, 
-                                          "decoder_label": decoder_label})  
-                
+
                 # append to examples list
+                training_sentence = dict({"sentence_embedding": sentence_embedding, "sentence_text": sentence_text, "decoder_input": decoder_input, "decoder_attention_mask": decoder_attention_mask, "decoder_label": decoder_label})  
                 self.examples.append(training_sentence)
 
+
             # print examples of training set
-            for example in self.examples[:5]:
-                logger.info("decoder_input_dec: " + str(tokenizer.decode(example["decoder_input"].tolist(), clean_up_tokenization_spaces=True)))
-                logger.info("decoder_input_enc: " + str(example["decoder_input"]))
-                logger.info("decoder_label_dec: " + str(tokenizer.decode(example["decoder_label"].tolist(), clean_up_tokenization_spaces=True)))
-                logger.info("decoder_label_enc: " + str(example["decoder_label"]))           
-                logger.info("-" * 50)
+            for i in range(5):
+                example = self.examples[i]
+                logger.info("decoder_input: " + str(example["decoder_input"]))
+                logger.info("decoder_label: " + str(example["decoder_label"]))           
+                logger.info("decoder_input: " + str(tokenizer.decode(example["decoder_input"].tolist(), clean_up_tokenization_spaces=True))) 
+                logger.info("decoder_label: " + str(tokenizer.decode(example["decoder_label"].tolist(), clean_up_tokenization_spaces=True)))
 
             logger.info("Saving features into cached file %s", cached_features_file)
             with open(cached_features_file, 'wb') as handle:
@@ -197,6 +185,12 @@ def loss_perplexity_fn(decoder_lm_logits, target, ignore_index):
     
     # Negative Log Likelihood
     loss_fct = torch.nn.CrossEntropyLoss(reduction='mean', ignore_index=ignore_index) # this 'mean' is taking average across all predicted tokens: sum(crossentropyloss_each_position)/(batch_size * seq_length)
+    # # transform decoder_lm_logits from [batch_size, seq_length, vocab_size] => [batch_size * seq_length, vocab_size], target from [batch_size, sweq_length] => [batch_size * sweq_length]
+    # print("decoder_lm_logits: " + str(decoder_lm_logits.shape))
+    # NLL_loss = loss_fct(decoder_lm_logits, target)
+    # print("NLL_loss: " + str(NLL_loss.shape))  # expect [batch_size of 1 GPU, 1]
+    # perplexity = torch.exp(NLL_loss)
+    # print("perplexity: " + str(perplexity.shape)) # expect [batch_size of 1 GPU, 1]
 
     NLL_loss_batch = []
     perplexity_batch = []
@@ -219,17 +213,9 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
     tb_writer = SummaryWriter()
     
     print("DEBUGGING!")
-    print("train_dataset length:", len(train_dataset), "samples")
-    print("First sample:")
-    sample = train_dataset[0]
-    for key in sample.keys():
-        if key != "sentence_text":
-            print( "{} w/ shape {} = {}".format(key, sample[key].shape, sample[key]) )
-        else:
-            print( "{} = {}".format(key, sample[key]))
-   
-
-    print("Training Batch Size (scales with GPUs): ", args.per_gpu_train_batch_size * max(1, args.n_gpu))
+    print("train_dataset: " + str(len(train_dataset)))
+    print(train_dataset[0])
+    print("train_batch_size: " + str(args.per_gpu_train_batch_size * max(1, args.n_gpu)))
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset)
@@ -277,7 +263,8 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
 
     loss_report = []
     eval_loss_report = []
-    
+    eval_perplexity_loss_report = []
+    eval_current_step = []
     for _ in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=False)
         for step, batch in enumerate(epoch_iterator):
@@ -291,19 +278,9 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
             decoder_label = decoder_label.to(args.device)
             decoder_attention_mask = decoder_attention_mask.to(args.device)
 
-            # debug
-            print("> sentence_embedding:", sentence_embedding.shape)
-            print("> decoder_input:", decoder_input.shape)
-            print("> decoder_label:", decoder_label.shape)
-            print("> decoder_attention_mask:", decoder_attention_mask.shape)
 
             # forward pass (change and edit with VAE code)
-            decoder_lm_logits = model(
-                embeddings=sentence_embedding, 
-                decoder_input_ids=decoder_input, 
-                decoder_attention_mask=decoder_attention_mask, 
-                device=args.device
-            )
+            decoder_lm_logits = model(sentence_embedding, decoder_input, decoder_attention_mask, args.device)
 
 
             # compute loss  
@@ -356,19 +333,6 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
                         first_endoftext = prediction_text.find("<|endoftext|>") 
                         logger.info("predictions: " + str(prediction_text[:(first_endoftext + 13) if first_endoftext>0 else len(prediction_text)])) 
 
-                    # evaluate
-                    if args.evaluate_during_training:
-                        # set model to eval
-                        model.eval()
-
-                        # running train function
-                        eval_loss, eval_perplexity = evaluate(args, eval_dataset, model, tokenizer)
-                        eval_loss_report.append(eval_loss)
-                        print("Average current evaluate loss: " + str(eval_loss))
-
-                        # set model to train
-                        model.train()
-
                     # Log metrics
                     print("Average current training loss: " + str(np.mean(loss_report[-args.printing_steps:]))) 
                     
@@ -390,8 +354,25 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
 
+
+                    # evaluate
+                    if args.evaluate_during_training:
+                        # set model to eval
+                        model.eval()
+
+                        # running train function
+                        eval_loss, eval_perplexity = evaluate(args, eval_dataset, model, tokenizer)
+                        eval_loss_report.append(eval_loss)
+                        eval_perplexity_loss_report.append(eval_perplexity)
+                        eval_current_step.append(global_step)
+                        print("Average current evaluate loss: " + str(eval_loss))
+
+                        # set model to train
+                        model.train()
+
+
                     # save model
-                    loss_reports = [loss_report, eval_loss_report]
+                    loss_reports = {"loss_report":loss_report, "eval_loss_report":eval_loss_report, "eval_perplexity_loss_report":eval_perplexity_loss_report, "eval_current_step":eval_current_step}
                     model.module.save_pretrained(args, output_dir, loss_reports)                    
                     logger.info("Saving model checkpoint to %s", output_dir)
                     _rotate_checkpoints(args, checkpoint_prefix)
@@ -405,7 +386,7 @@ def train(args, train_dataset, eval_dataset, model, tokenizer):
             break
 
     # save final loss_reports
-    loss_reports = [loss_report, eval_loss_report]
+    loss_reports = {"loss_report":loss_report, "eval_loss_report":eval_loss_report, "eval_perplexity_loss_report":eval_perplexity_loss_report,"eval_current_step":eval_current_step}
 
     # close summary writer
     tb_writer.close()
@@ -444,9 +425,8 @@ def evaluate(args, eval_dataset, model, tokenizer):
 
 
         # compute loss  
-        NLL_loss, perplexity = loss_perplexity_fn(decoder_lm_logits, decoder_label, tokenizer.convert_tokens_to_ids(["<|pad|>"])[0])    
-        ## DEBUGGING
-        loss = NLL_loss
+        loss, perplexity = loss_perplexity_fn(decoder_lm_logits, decoder_label, tokenizer.convert_tokens_to_ids(["<|pad|>"])[0])    
+
 
 
         # # DEBUGGING
@@ -597,10 +577,11 @@ def main():
 
     # Building model
     gpt2_config_class, gpt2_class, tokenizer_class = MODEL_CLASSES[args.gpt2_model_type]
-    gpt2_config = gpt2_config_class.from_pretrained(args.gpt2_model_name_or_path, cache_dir = None)
+    # gpt2_config = gpt2_config_class.from_pretrained(args.gpt2_model_name_or_path, cache_dir = None)
+    gpt2_config = gpt2_config_class.from_pretrained('gpt2', cache_dir = None)
     latent_size = args.latent_size
     model = GPT2_WRAPPER(gpt2_config, latent_size)
-    
+
     
     # Initialize / Load from checkpoint model
     if args.do_train:
@@ -615,11 +596,18 @@ def main():
     args.block_size = min(args.block_size, model.tokenizer.max_len_single_sentence)
 
 
+    # count number of params
+    pytorch_total_params = sum(p.numel() for p in model.parameters()) 
+    print("Number of parameters: " + str(pytorch_total_params))
+    
+
+
     # Send model to GPU
     model.to(args.device)
 
     # Set parallel running
     model = torch.nn.DataParallel(model) 
+
 
     # Logging info
     logger.info("Inference parameters %s", args)
