@@ -2,9 +2,6 @@
 
 # Before importing torch, set os params
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
-os.environ["WORLD_SIZE"] = "1"
-
 import time
 import pandas as pd
 from transformers import EarlyStoppingCallback, RobertaTokenizerFast, RobertaForSequenceClassification,Trainer, TrainingArguments
@@ -12,63 +9,91 @@ import torch
 from datasets import Dataset
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.model_selection import train_test_split
 import sys  # noqa: E401
 
 huggingface_model = "roberta-base"
 
-data_path = "/chronos_data/smangalik/self-belief-classifiers/"
+data_path = "/chronos_data/smangalik/beliefs_modeling/"
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["WORLD_SIZE"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# Load the datasets
-shared_columns = ['message_id', 'message', 'self_belief_explicit']
+# Run Parameters
+mode = sys.argv[1] # --train or --inference
+data_type = 1
+if len(sys.argv) > 2:
+    data_type = int(sys.argv[2]) # 1 (human only) or 2 (llm only) or 3 (human + llm) or 4 (llm then human)
 
-# I am _ person
-df_i_am = pd.read_excel("/home/smangalik/primal-beliefs-modeling/data/i_am_person_annotated.csv.xlsx")
-df_i_am = df_i_am[df_i_am['self_belief_explicit'].notna()]
-df_i_am['self_belief_explicit'] = df_i_am['self_belief_explicit'].astype(int)
-df_i_am['message_id'] = df_i_am.apply(lambda x: hash(x['yearweek_userid'] + x['message']), axis=1)
-print("I am _ person:", df_i_am.shape, df_i_am.columns)
-print(df_i_am[shared_columns])
+# Read in the inter-annotator agreement set
+df = pd.read_excel('data/llm_annotations.xlsx')
+df['text'] = df['message']
+df['label'] = df['annotator_3'].replace(3,2) # Code 3 (I am the only...) = implicit self-belief
+print("\nInterrater Annotations:", df.shape)
+print(df.head())
 
-# <whatever> I <VBD> ___  <whatever>
-df_self_beliefs = pd.read_excel("/home/smangalik/primal-beliefs-modeling/data/annotated_self_beliefs.csv.xlsx")
-df_self_beliefs = df_self_beliefs[df_self_beliefs['self_belief_explicit'].notna()]
-print("Self beliefs:", df_self_beliefs.shape, df_self_beliefs.columns)
-print(df_self_beliefs[shared_columns])
+# Train / Test split
+train = df.sample(frac=0.5, random_state=25)
+test = df.drop(train.index)
 
-# I <VBD> ___
-df_self_beliefs_candidate = df_self_beliefs.copy(deep=True)
-df_self_beliefs_candidate.drop(columns=['message'], inplace=True)
-df_self_beliefs_candidate.rename(columns={'better_candidate': 'message'}, inplace=True)
-df_self_beliefs_candidate['message_id'] = df_self_beliefs_candidate.apply(lambda x: hash(x['message']), axis=1)
-print("Self beliefs: [Better Candidate]", df_self_beliefs_candidate.shape, df_self_beliefs_candidate.columns)
-print(df_self_beliefs_candidate[shared_columns])
+# Human annotations NOT from the interrater agreement set
+df_human_1 = pd.read_excel("data/askreddit_self_belief_candidates_annotated.csv.xlsx")
+df_human_1['text'] = df_human_1['self_belief_candidate']
+df_human_1['label'] = df_human_1['self_belief_explicit'].replace(3,2)
+df_human_1 = df_human_1[~df_human_1['text'].isin(df['text'])] # Remove the overlapping messages
+print("\nReddit Human Annotations:", df_human_1.shape)
+df_human_2 = pd.read_excel("data/twitter_i_am_person_annotatedINTERRATER.csv.xlsx", sheet_name="i-am--persona-za-z")
+df_human_2['text'] = df_human_2['message']
+df_human_2['label'] = df_human_2['Abby Rating'].replace(3,2)
+df_human_2 = df_human_2[df_human_2['Sid self_belief_explicit'].isna()]
+df_human = pd.concat([df_human_1, df_human_2])
+df_human.drop(columns=['index','yearweek_userid','Abby Rating','Sid self_belief_explicit'], inplace=True)
+print("Twitter Human Annotations:", df_human_2.shape)
+print("Human Annotations:", df_human.shape)
+print(df_human.head())
 
+# ChatGPT Annotations
+df_llm = pd.read_excel('data/self_belief_candidates_annotated_10k.xlsx')
+df_llm['text'] = df_llm['message']
+df_llm['label'] = df_llm['annotator_chatgpt']
+print("\nLLM Annotations:", df_llm.shape)
+print(df_llm.head())
 
-df = pd.concat([
-    df_i_am[shared_columns], 
-    df_self_beliefs_candidate[shared_columns],
-    df_self_beliefs[shared_columns]
-    ])
-df.rename(columns={'message': 'text', 'self_belief_explicit': 'label'}, inplace=True)
-print("\nFinal Data:", df.shape, df.columns)
-print(df)
-
-df.to_csv('/home/smangalik/primal-beliefs-modeling/data/all_data.csv', index=False, encoding='utf-8')
+# Alter the data based on the data type
+if data_type == 1: # Human Only
+    # Concatenate the human data
+    train = pd.concat([ train[['text','label']], df_human[['text','label']] ])
+elif data_type == 2: # LLM Only
+    # train is replaced with the LLM data
+    train = df_llm[['text','label']]
+elif data_type == 3: # LLM + Human
+    # Concatenate the LLM data with the human data
+    train = pd.concat([ train[['text','label']], df_llm[['text','label']], df_human[['text','label']] ])
+elif data_type == 4: # fetch the best model from the LLM data and then train on the human data
+    pass
 
 # Print some statistics
-num_labels = len(df['label'].unique())
-print("Label counts:")
-print(df['label'].value_counts())
-print("Number of labels:", num_labels)
-print("Baseline accuracy:", df['label'].value_counts().max() / df.shape[0])
+print("\nTrain Stats:")
+print(train['label'].value_counts())
+print("Number of labels:", train['label'].nunique())
+print("Baseline accuracy:", train['label'].value_counts().max() / train.shape[0])
 
-mode = sys.argv[1]
+print("\nTest Stats:")
+print(test['label'].value_counts())
+print("Number of labels:", test['label'].nunique())
+print("Baseline accuracy:", test['label'].value_counts().max() / test.shape[0])
+    
+assert(train['label'].nunique() == test['label'].nunique())
+num_labels = train['label'].nunique()
+    
+print("STOPPING EARLY")
+sys.exit()
+    
 if mode == "--train":
     
-    print("Training Data:")
+    print("\nTraining Data:")
     print(df[['text','label']].sample(25))
     print(df['label'].value_counts())
     
@@ -82,12 +107,12 @@ if mode == "--train":
     print("Training Device:", device)
     
     
-    dataset = Dataset.from_pandas(df).train_test_split(shuffle=True, seed=25, test_size=0.2)
-    train_data, test_data = dataset['train'], dataset['test']
+    train_data = Dataset.from_pandas(train)
+    test_data = Dataset.from_pandas(test)
     
     # write train/test data to disk
-    train_data.to_csv('data/train_data.csv', index=False, encoding='utf-8')
-    test_data.to_csv('data/test_data.csv', index=False, encoding='utf-8')
+    train_data.to_csv(data_path + 'data/train_data_{}.csv'.format(data_type), index=False, encoding='utf-8')
+    test_data.to_csv(data_path + 'data/test_data_{}.csv'.format(data_type), index=False, encoding='utf-8')
     
     # Define the tokenizer and model
     model = RobertaForSequenceClassification.from_pretrained(huggingface_model, num_labels=num_labels)
@@ -117,7 +142,7 @@ if mode == "--train":
         }
     
     training_args = TrainingArguments(
-        output_dir='./self-belief-classifier',
+        output_dir=data_path + 'self-belief-classifier-{}'.format(data_type),
         num_train_epochs=50,
         per_device_train_batch_size = 4,
         gradient_accumulation_steps = 2,    
@@ -133,13 +158,10 @@ if mode == "--train":
         weight_decay=0,
         logging_steps = 8,
         fp16 = True,
-        logging_dir='./self-belief-classifier-logs',
+        logging_dir=data_path + '/self-belief-classifier-logs',
         dataloader_num_workers = 8,
         run_name = 'self-belief-classification'
     )
-    
-    print("Training Arguments:")
-    print(training_args)
     
     early_stop_callback = EarlyStoppingCallback(
         early_stopping_patience=3, 
@@ -155,18 +177,21 @@ if mode == "--train":
         eval_dataset=test_data,
         callbacks=[early_stop_callback]
     )
+    
+    print("Trainer Params:")
+    print(training_args)
         
     # Train the model
     trainer.train()
     # Save the model
-    trainer.save_model('./self-belief-classifier-{}'.format(time.time()))
+    trainer.save_model(data_path + 'self-belief-classifier-{}-{}'.format(data_type,time.time()))
     # Evaluate the model
     final_metrics = trainer.evaluate()
     print("Final Metrics:\n", final_metrics)
     
 elif mode == "--inference":
     # Load the tokenizer and model
-    model = RobertaForSequenceClassification.from_pretrained('./self-belief-classifier')
+    model = RobertaForSequenceClassification.from_pretrained(data_path + 'self-belief-classifier-{}'.format(data_type))
     tokenizer = RobertaTokenizerFast.from_pretrained(huggingface_model, max_length = 256)
     
     # Define the function to predict the class of new messages
@@ -228,7 +253,7 @@ elif mode == "--inference":
         print(f"Predicted class for: '{text}' = {pred}.")
     
     # Load test data
-    df_test = pd.read_csv('data/test_data.csv')
+    df_test = pd.read_csv(data_path + 'data/test_data.csv')
     
     # Predict all values at once
     print("\nPredicting labels for test data:")

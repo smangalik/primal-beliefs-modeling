@@ -1,5 +1,8 @@
+__pycache__/
+data/
 *.csv
 *.json
+self-belief-classifier*/
 runs/
 trained_models/
 modeling_gpt2.py
